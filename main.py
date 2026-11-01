@@ -1,5 +1,6 @@
 import time
 import re
+import html
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
@@ -10,75 +11,95 @@ BOT_TOKEN = "9299530952:AAHH4CC0CqT-kfFkyGR97W-W3untPRP8xLI"
 GEMINI_API_KEY = "AIzaSyBUHdNuRzGOcBIZTKapO2bSPxnC1NBJWhU"
 TARGET_CHANNEL = "@almaydan_news24"
 
-# التوقيع التلقائي اللي رح ينزل بأسفل كل خبر
-SIGNATURE = "\n\n➖➖➖➖➖➖➖\n📲 **الميدان نيوز | تابع التغطية أولاً بأول:**\n🔗 @almaydan_news24"
+# التوقيع التلقائي
+SIGNATURE = "\n\n➖➖➖➖➖➖➖\n📲 <b>الميدان نيوز | تابع التغطية أولاً بأول:</b>\n🔗 @almaydan_news24"
 
-SOURCE_CHANNELS = ["bintjbeilnews", "N_FFG", "sham_fm", "AJA_Breaking"]
+# القنوات المصدرية الجديدة بالكامل حسب طلبك
+SOURCE_CHANNELS = [
+    "AjaNews",
+    "almayadeen",
+    "mayadeenchannel",
+    "iraqex1",
+    "alnourradio",
+    "bintjbeilnews",
+    "N_FFG"
+]
 
+# برومبت متخصص بإعادة صياغة الجملة بالكامل
 PROMPT = """
-أنت محرر صحفي عاجل ومحترف لقناة إخبارية سريعة اسمها (الميدان نيوز).
+أنت محرر صحفي محترف لوكالة أنباء عاجلة.
 مهمتك:
-1. اقرأ الخبر التالي، وتأكد أنه يتعلق بإحدى المناطق: (سوريا، فلسطين وغزة، لبنان، العراق، إيران، الشرق الأوسط).
-2. احذف منه أي إعلانات، روابط، أسماء قنوات أو مواقع، وأسماء مذيعين.
-3. إذا كان الخبر عبارة عن إعلان، أو خبر تافه، رد بكلمة: IGNORE
-4. إذا كان خبراً مهماً، أعد صياغته باختصار بالتنسيق التالي حصراً:
-🔴 **NEWS | عاجل | [اسم الدولة]**
-[نص الخبر بسطرين إلى 3 أسطر بأسلوب إخباري رصين وسريع]
+1. اقرأ الخبر التالي، وتأكد أنه خبر سياسي أو ميداني يخص: (سوريا، فلسطين وغزة، لبنان، العراق، إيران، أو الشرق الأوسط).
+2. قم بإعادة صياغة الجملة بالكامل بأسلوبك الصحفي الرصين والمباشر (لا تنسخ النص كما هو، بل أعد بناء الجملة لتكون قوية ومختصرة في سطرين فقط).
+3. احذف تماماً أي أسماء قنوات (مثل الجزيرة، الميادين، النور)، وأي روابط أو توجيهات للمتابعة.
+4. إذا كان الخبر إعلاناً، أو غير مهم، رد بكلمة: IGNORE
+5. التنسيق الإجباري:
+🔴 <b>NEWS | عاجل | [الدولة أو المنطقة]</b>
+[الجملة بعد إعادة صياغتها باحترافية]
 
-الخبر:
+الخبر الأصلي:
 """
 
 posted_messages = set()
 
 def send_to_telegram(text):
-    """إرسال الخبر لقناتك مع التوقيع"""
+    """إرسال الخبر مع حماية مزدوجة ضد خطأ 400"""
     full_message = text + SIGNATURE
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    
+    # المحاولة الأولى بنظام HTML
     payload = {
         "chat_id": TARGET_CHANNEL,
         "text": full_message,
-        "parse_mode": "Markdown"
+        "parse_mode": "HTML"
     }
     try:
         r = requests.post(url, json=payload, timeout=15)
+        
+        # إذا رفض تلغرام بسبب رمز غير متوافق (خطأ 400)، نرسله كنص عادي بدون تشفير
+        if r.status_code != 200:
+            clean_plain_text = re.sub(r'<[^>]*>', '', full_message)
+            fallback_payload = {
+                "chat_id": TARGET_CHANNEL,
+                "text": clean_plain_text
+            }
+            r = requests.post(url, json=fallback_payload, timeout=15)
+            
         print(f"نتيجة الإرسال لتلغرام: {r.status_code}", flush=True)
     except Exception as e:
         print(f"خطأ بالإرسال لتلغرام: {e}", flush=True)
 
 def fallback_clean(raw_text):
-    """تنظيف فوري للخبر ونشره في حال تأخر أو تعطل الذكاء الاصطناعي"""
+    """صياغة طوارئ في حال تأخر الذكاء الاصطناعي"""
     text = re.sub(r'https?://\S+', '', raw_text)
     text = re.sub(r'@\w+', '', text)
     text = text.replace("تابعونا", "").replace("اشترك", "").strip()
-    lines = [line.strip() for line in text.split("\n") if line.strip()]
-    cleaned = "\n".join(lines[:3])
-    return f"🔴 **NEWS | عاجل**\n\n{cleaned}"
+    lines = [html.escape(line.strip()) for line in text.split("\n") if line.strip()]
+    cleaned = "\n".join(lines[:2])
+    return f"🔴 <b>NEWS | عاجل</b>\n\n{cleaned}"
 
 def ask_gemini(raw_text):
-    """طلب الصياغة من Gemini عبر الرابط المباشر الرسمي"""
+    """إعادة صياغة الجملة عبر Gemini 2.0 و 1.5"""
     models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"]
     for m in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={GEMINI_API_KEY}"
         payload = {
-            "contents": [{"parts": [{"text": PROMPT + raw_text}]}],
-            "safetySettings": [
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-            ]
+            "contents": [{"parts": [{"text": PROMPT + raw_text}]}]
         }
         try:
-            res = requests.post(url, json=payload, timeout=10)
+            res = requests.post(url, json=payload, timeout=8)
             if res.status_code == 200:
                 data = res.json()
-                return data['candidates'][0]['content']['parts'][0]['text'].strip()
+                ai_text = data['candidates'][0]['content']['parts'][0]['text'].strip()
+                if "IGNORE" in ai_text:
+                    return "IGNORE"
+                return ai_text
         except:
             pass
     return None
 
 def scrape_channel(channel_name):
-    """قراءة آخر المنشورات"""
+    """سحب آخر المنشورات"""
     url = f"https://t.me/s/{channel_name}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -96,7 +117,7 @@ def scrape_channel(channel_name):
         return []
 
 def news_loop():
-    print("🚀 البوت بدأ العمل الحقيقي مع التوقيع التلقائي...", flush=True)
+    print("🚀 البوت بدأ العمل ومراقبة كل القنوات الجديدة مع إعادة الصياغة...", flush=True)
 
     while True:
         for channel in SOURCE_CHANNELS:
@@ -106,27 +127,26 @@ def news_loop():
                 if raw_news and len(raw_news) > 20 and (raw_news not in posted_messages):
                     posted_messages.add(raw_news)
                     
-                    if len(posted_messages) > 400:
+                    if len(posted_messages) > 500:
                         posted_messages.clear()
 
-                    print(f"📥 خبر جديد من {channel}، جاري معالجته...", flush=True)
+                    print(f"📥 خبر جديد من {channel}، جاري إعادة صياغته...", flush=True)
                     
                     final_text = ask_gemini(raw_news)
                     
-                    if final_text and "IGNORE" in final_text:
-                        print(f"⛔ إعلان تم استبعاده من {channel}.", flush=True)
+                    if final_text == "IGNORE":
+                        print(f"⛔ تم استبعاد الخبر (إعلان أو غير مناسب).", flush=True)
                         continue
 
                     if not final_text or len(final_text) < 10:
-                        print("⚠️ استخدام نظام التنظيف الفوري المباشر!", flush=True)
                         final_text = fallback_clean(raw_news)
 
                     send_to_telegram(final_text)
-                    print(f"✅ تم نشر الخبر مع التوقيع بنجاح من {channel}!", flush=True)
+                    print(f"✅ تم نشر الخبر بعد إعادة الصياغة من {channel}!", flush=True)
 
-            time.sleep(4)
+            time.sleep(3)
 
-        time.sleep(45)
+        time.sleep(40) # فحص مستمر كل 40 ثانية
 
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
