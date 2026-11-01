@@ -1,55 +1,24 @@
 import time
+import re
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 from bs4 import BeautifulSoup
-import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 # ================= بياناتك =================
 BOT_TOKEN = "9299530952:AAHH4CC0CqT-kfFkyGR97W-W3untPRP8xLI"
 GEMINI_API_KEY = "AIzaSyBUHdNuRzGOcBIZTKapO2bSPxnC1NBJWhU"
 TARGET_CHANNEL = "@almaydan_news24"
 
-# القنوات المصدرية
-SOURCE_CHANNELS = [
-    "bintjbeilnews",
-    "N_FFG",
-    "sham_fm",
-    "AJA_Breaking"
-]
-
-# ================= إعداد الذكاء الاصطناعي التلقائي =================
-genai.configure(api_key=GEMINI_API_KEY)
-
-safety_settings = {
-    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-}
-
-# البحث التلقائي عن الموديل المتاح في حسابك لتفادي خطأ 404
-chosen_model_name = "gemini-1.5-flash"
-try:
-    available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-    for candidate in ['models/gemini-1.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash-latest', 'models/gemini-pro']:
-        if candidate in available_models:
-            chosen_model_name = candidate
-            break
-    print(f"تم اختيار الموديل الشغال بحسابك: {chosen_model_name}", flush=True)
-except Exception as e:
-    chosen_model_name = "gemini-1.5-flash"
-
-model = genai.GenerativeModel(chosen_model_name, safety_settings=safety_settings)
+SOURCE_CHANNELS = ["bintjbeilnews", "N_FFG", "sham_fm", "AJA_Breaking"]
 
 PROMPT = """
 أنت محرر صحفي عاجل ومحترف لقناة إخبارية سريعة اسمها (الميدان نيوز).
 مهمتك:
-1. اقرأ الخبر التالي، وتأكد أنه يتعلق بإحدى المناطق: (سوريا، فلسطين وغزة، لبنان، العراق، إيران، أو الشرق الأوسط).
+1. اقرأ الخبر التالي، وتأكد أنه يتعلق بإحدى المناطق: (سوريا، فلسطين وغزة، لبنان، العراق، إيران، الشرق الأوسط).
 2. احذف منه أي إعلانات، روابط، أسماء قنوات أو مواقع، وأسماء مذيعين.
-3. إذا كان الخبر عبارة عن إعلان، أو خبر تافه، أو خارج نطاق هذه الدول، رد بكلمة واحدة فقط: IGNORE
-4. إذا كان خبراً مهماً، أعد صياغته باختصار واحترافية بالتنسيق التالي حصراً:
+3. إذا كان الخبر عبارة عن إعلان، أو خبر تافه، رد بكلمة: IGNORE
+4. إذا كان خبراً مهماً، أعد صياغته باختصار بالتنسيق التالي حصراً:
 🔴 **NEWS | عاجل | [اسم الدولة]**
 [نص الخبر بسطرين إلى 3 أسطر بأسلوب إخباري رصين وسريع]
 
@@ -72,34 +41,61 @@ def send_to_telegram(text):
     except Exception as e:
         print(f"خطأ بالإرسال لتلغرام: {e}", flush=True)
 
+def fallback_clean(raw_text):
+    """تنظيف فوري للخبر ونشره في حال تأخر أو تعطل الذكاء الاصطناعي"""
+    text = re.sub(r'https?://\S+', '', raw_text)
+    text = re.sub(r'@\w+', '', text)
+    text = text.replace("تابعونا", "").replace("اشترك", "").strip()
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    cleaned = "\n".join(lines[:3])
+    return f"🔴 **NEWS | عاجل**\n\n{cleaned}"
+
+def ask_gemini(raw_text):
+    """طلب الصياغة من Gemini عبر الرابط المباشر الرسمي"""
+    models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"]
+    for m in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={GEMINI_API_KEY}"
+        payload = {
+            "contents": [{"parts": [{"text": PROMPT + raw_text}]}],
+            "safetySettings": [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+            ]
+        }
+        try:
+            res = requests.post(url, json=payload, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                return data['candidates'][0]['content']['parts'][0]['text'].strip()
+        except:
+            pass
+    return None
+
 def scrape_channel(channel_name):
     """قراءة آخر المنشورات"""
     url = f"https://t.me/s/{channel_name}"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "ar,en-US;q=0.7,en;q=0.3"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept-Language": "ar,en;q=0.9"
     }
     try:
         response = requests.get(url, headers=headers, timeout=15)
         soup = BeautifulSoup(response.text, "html.parser")
         messages = soup.find_all("div", class_="tgme_widget_message_text")
-        
         if not messages:
-            print(f"⚠️ لم يتم العثور على رسائل في {channel_name}", flush=True)
             return []
-            
         return [msg.get_text(separator="\n").strip() for msg in messages[-2:]]
     except Exception as e:
-        print(f"❌ خطأ بقراءة القناة {channel_name}: {e}", flush=True)
+        print(f"خطأ بقراءة {channel_name}: {e}", flush=True)
         return []
 
 def news_loop():
-    print("🚀 البوت بدأ العمل الحقيقي ومراقبة القنوات...", flush=True)
+    print("🚀 البوت بدأ العمل الحقيقي بالنظام المباشر...", flush=True)
 
     while True:
         for channel in SOURCE_CHANNELS:
-            print(f"🔍 فحص: {channel}...", flush=True)
             recent_news = scrape_channel(channel)
             
             for raw_news in recent_news:
@@ -109,24 +105,27 @@ def news_loop():
                     if len(posted_messages) > 400:
                         posted_messages.clear()
 
-                    print(f"📥 خبر جديد من {channel}، جاري صياغته بـ Gemini...", flush=True)
+                    print(f"📥 خبر جديد من {channel}، جاري معالجته...", flush=True)
                     
-                    try:
-                        ai_response = model.generate_content(PROMPT + raw_news)
-                        final_text = ai_response.text.strip()
-                        
-                        if "IGNORE" not in final_text and len(final_text) > 10:
-                            send_to_telegram(final_text)
-                            print(f"✅ تم نشر الخبر بنجاح من {channel}!", flush=True)
-                        else:
-                            print(f"⛔ تم تجاهل الخبر من {channel}.", flush=True)
-                            
-                    except Exception as e:
-                        print(f"⚠️ خطأ بالذكاء الاصطناعي: {e}", flush=True)
+                    # محاولة الصياغة بالذكاء الاصطناعي
+                    final_text = ask_gemini(raw_news)
+                    
+                    # إذا الذكاء الاصطناعي تجاهل الخبر لأنه إعلان
+                    if final_text and "IGNORE" in final_text:
+                        print(f"⛔ إعلان تم استبعاده من {channel}.", flush=True)
+                        continue
 
-            time.sleep(5)  # انتظار 5 ثواني بين كل قناة لتفادي الحظر
+                    # إذا ما اشتغل الذكاء الاصطناعي، بنشغّل نظام التنظيف الفوري وما منضيع الخبر
+                    if not final_text or len(final_text) < 10:
+                        print("⚠️ الذكاء الاصطناعي تعطل، سيتم النشر عبر نظام التنظيف الفوري المباشر!", flush=True)
+                        final_text = fallback_clean(raw_news)
 
-        time.sleep(60)
+                    send_to_telegram(final_text)
+                    print(f"✅ تم نشر الخبر بنجاح في قناتك من {channel}!", flush=True)
+
+            time.sleep(4)
+
+        time.sleep(45)
 
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
