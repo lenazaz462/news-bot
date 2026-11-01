@@ -6,21 +6,20 @@ from bs4 import BeautifulSoup
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
-# ================= بياناتك الجاهزة =================
+# ================= بياناتك =================
 BOT_TOKEN = "9299530952:AAHH4CC0CqT-kfFkyGR97W-W3untPRP8xLI"
 GEMINI_API_KEY = "AIzaSyBUHdNuRzGOcBIZTKapO2bSPxnC1NBJWhU"
 TARGET_CHANNEL = "@almaydan_news24"
 
-# القنوات المصدرية (ضفنا الجزيرة عاجل + العربية عاجل + القنوات المحلية)
+# القنوات المصدرية
 SOURCE_CHANNELS = [
-    "AJA_Breaking",     # الجزيرة - عاجل
-    "AlArabiya_Brk",    # العربية - عاجل
-    "sham_fm",          # شام إف إم (سوريا)
-    "bintjbeilnews",    # بنت جبيل (لبنان)
-    "N_FFG"             # أخبار لبنان وغزة
+    "bintjbeilnews",
+    "N_FFG",
+    "sham_fm",
+    "AJA_Breaking"
 ]
 
-# ================= إعداد الذكاء الاصطناعي =================
+# ================= إعداد الذكاء الاصطناعي التلقائي =================
 genai.configure(api_key=GEMINI_API_KEY)
 
 safety_settings = {
@@ -30,15 +29,27 @@ safety_settings = {
     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
 }
 
-model = genai.GenerativeModel('gemini-1.5-flash', safety_settings=safety_settings)
+# البحث التلقائي عن الموديل المتاح في حسابك لتفادي خطأ 404
+chosen_model_name = "gemini-1.5-flash"
+try:
+    available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    for candidate in ['models/gemini-1.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash-latest', 'models/gemini-pro']:
+        if candidate in available_models:
+            chosen_model_name = candidate
+            break
+    print(f"تم اختيار الموديل الشغال بحسابك: {chosen_model_name}", flush=True)
+except Exception as e:
+    chosen_model_name = "gemini-1.5-flash"
+
+model = genai.GenerativeModel(chosen_model_name, safety_settings=safety_settings)
 
 PROMPT = """
 أنت محرر صحفي عاجل ومحترف لقناة إخبارية سريعة اسمها (الميدان نيوز).
 مهمتك:
-1. اقرأ الخبر التالي، وتأكد أنه يتعلق حصراً بإحدى المناطق: (سوريا، فلسطين وغزة، لبنان، العراق، إيران، أو قضايا الشرق الأوسط الهامة).
-2. احذف منه أي إعلانات، روابط، أسماء قنوات (مثل الجزيرة أو العربية)، أسماء مذيعين، أو عبارات مثل 'تابعونا'.
+1. اقرأ الخبر التالي، وتأكد أنه يتعلق بإحدى المناطق: (سوريا، فلسطين وغزة، لبنان، العراق، إيران، أو الشرق الأوسط).
+2. احذف منه أي إعلانات، روابط، أسماء قنوات أو مواقع، وأسماء مذيعين.
 3. إذا كان الخبر عبارة عن إعلان، أو خبر تافه، أو خارج نطاق هذه الدول، رد بكلمة واحدة فقط: IGNORE
-4. إذا كان خبراً مهماً، أعد صياغته باختصار واحترافية بالتنسيق التالي حصراً مع كلمة NEWS:
+4. إذا كان خبراً مهماً، أعد صياغته باختصار واحترافية بالتنسيق التالي حصراً:
 🔴 **NEWS | عاجل | [اسم الدولة]**
 [نص الخبر بسطرين إلى 3 أسطر بأسلوب إخباري رصين وسريع]
 
@@ -66,7 +77,7 @@ def scrape_channel(channel_name):
     url = f"https://t.me/s/{channel_name}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "ar,en-US;q=0.7,en;q=0.3"
     }
     try:
@@ -84,8 +95,7 @@ def scrape_channel(channel_name):
         return []
 
 def news_loop():
-    print("🚀 البوت بدأ العمل ومراقبة الجزيرة، العربية، وباقي القنوات...", flush=True)
-    send_to_telegram("🔄 **تم تحديث النظام: جاري مراقبة الجزيرة والعربية وباقي المصادر الآن...**")
+    print("🚀 البوت بدأ العمل الحقيقي ومراقبة القنوات...", flush=True)
 
     while True:
         for channel in SOURCE_CHANNELS:
@@ -114,9 +124,9 @@ def news_loop():
                     except Exception as e:
                         print(f"⚠️ خطأ بالذكاء الاصطناعي: {e}", flush=True)
 
-            time.sleep(2)
+            time.sleep(5)  # انتظار 5 ثواني بين كل قناة لتفادي الحظر
 
-        time.sleep(45) # فحص القنوات كل 45 ثانية لمواكبة العاجل
+        time.sleep(60)
 
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
