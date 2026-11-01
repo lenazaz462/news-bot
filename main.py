@@ -8,7 +8,6 @@ from bs4 import BeautifulSoup
 
 # ================= بياناتك =================
 BOT_TOKEN = "9299530952:AAHH4CC0CqT-kfFkyGR97W-W3untPRP8xLI"
-GEMINI_API_KEY = "AIzaSyBUHdNuRzGOcBIZTKapO2bSPxnC1NBJWhU"
 TARGET_CHANNEL = "@almaydan_news24"
 
 SIGNATURE = "\n\n➖➖➖➖➖➖➖\n📲 <b>الميدان نيوز | تابع التغطية أولاً بأول:</b>\n🔗 @almaydan_news24"
@@ -23,20 +22,6 @@ SOURCE_CHANNELS = [
     "N_FFG"
 ]
 
-PROMPT = """
-أنت محرر صحفي خبير. أعد كتابة وصياغة هذا الخبر بالكامل بأسلوب إخباري جديد، رصين، وقوي.
-شروط إجبارية:
-1. احتفظ بكل التفاصيل والأسماء والأرقام كاملة دون أي حذف.
-2. غيّر صياغة الجمل والكلمات بالكامل لتكون بأسلوبك الصحفي المستقل (لا تنسخ النص الأصلي).
-3. احذف أسماء القنوات الأصلية وروابطها وإعلاناتها.
-4. التنسيق:
-🔴 <b>NEWS | عاجل | [الدولة]</b>
-
-[الخبر بعد إعادة صياغته بالكامل]
-
-الخبر:
-"""
-
 posted_messages = set()
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -47,10 +32,9 @@ def send_to_telegram(text, photo_url=None):
     """إرسال الخبر مع الصورة الحقيقية"""
     full_message = text + SIGNATURE
     
-    # محاولة رفع الصورة أولاً إذا وجدت
     if photo_url:
         try:
-            print(f"جاري تحميل ورفع الصورة من: {photo_url[:40]}...", flush=True)
+            print(f"جاري رفع الصورة للقناة...", flush=True)
             img_res = requests.get(photo_url, headers=HEADERS, timeout=10)
             if img_res.status_code == 200 and len(img_res.content) > 5000:
                 caption_text = full_message if len(full_message) <= 1024 else full_message[:1020] + "..."
@@ -65,7 +49,6 @@ def send_to_telegram(text, photo_url=None):
         except Exception as e:
             print(f"تعذر إرسال الصورة: {e}", flush=True)
 
-    # نشر الخبر كنص في حال عدم وجود صورة
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": TARGET_CHANNEL, "text": full_message, "parse_mode": "HTML"}
     try:
@@ -77,40 +60,36 @@ def send_to_telegram(text, photo_url=None):
     except Exception as e:
         print(f"خطأ بالإرسال لتلغرام: {e}", flush=True)
 
-def ask_gemini(raw_text):
-    """صياغة الخبر وتجربة مسارات Google الرسمية لتفادي خطأ 404"""
-    endpoints = [
-        f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}",
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}",
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_API_KEY}",
-    ]
-    payload = {
-        "contents": [{"parts": [{"text": PROMPT + raw_text}]}]
-    }
-    for url in endpoints:
-        try:
-            res = requests.post(url, json=payload, timeout=10)
-            if res.status_code == 200:
-                data = res.json()
-                ai_text = data['candidates'][0]['content']['parts'][0]['text'].strip()
-                print("✨ نجح الذكاء الاصطناعي في إعادة الصياغة بالكامل!", flush=True)
-                return ai_text
-        except:
-            pass
+def free_ai_rephrase(raw_text):
+    """إعادة صياغة بذكاء اصطناعي مفتوح وبدون أي مفاتيح API"""
+    clean_input = re.sub(r'https?://\S+', '', raw_text)
+    clean_input = re.sub(r'@\w+', '', clean_input).replace("تابعونا", "").replace("اشترك", "").strip()
+    
+    prompt = (
+        "أنت محرر صحفي محترف. أعد صياغة هذا الخبر بأسلوب صحفي جديد كلياً ورصين مع الحفاظ على كامل التفاصيل والمعلومات بدقة. "
+        "احذف أي أسماء قنوات أو إعلانات واجعل النص يبدأ بـ 🔴 <b>NEWS | عاجل</b>:\n\n" + clean_input
+    )
+    
+    try:
+        # الاتصال بمحرك الذكاء الاصطناعي المفتوح والمجاني بالكامل
+        url = "https://text.pollinations.ai/"
+        payload = {
+            "messages": [{"role": "user", "content": prompt}],
+            "model": "openai"
+        }
+        res = requests.post(url, json=payload, timeout=12)
+        if res.status_code == 200 and len(res.text) > 30:
+            print("✨ نجح الذكاء الاصطناعي المفتوح في إعادة الصياغة بالكامل!", flush=True)
+            return res.text.strip()
+    except Exception as e:
+        print(f"تخطي الذكاء الاصطناعي بسبب البطء: {e}", flush=True)
 
-    print("❌ تعذر الاتصال بـ Gemini، سيتم استخدام نص الطوارئ مؤقتاً.", flush=True)
-    return None
-
-def fallback_clean(raw_text):
-    """تنظيف الطوارئ"""
-    text = re.sub(r'https?://\S+', '', raw_text)
-    text = re.sub(r'@\w+', '', text)
-    text = text.replace("تابعونا", "").replace("اشترك", "").strip()
-    lines = [html.escape(line.strip()) for line in text.split("\n") if line.strip()]
+    # قالب فوري في حال تأخر الإنترنت
+    lines = [html.escape(line.strip()) for line in clean_input.split("\n") if line.strip()]
     return f"🔴 <b>NEWS | عاجل</b>\n\n" + "\n\n".join(lines)
 
 def scrape_channel(channel_name):
-    """سحب النصوص وجميع أشكال الصور (صور عادية + أغلفة الأخبار + المعاينات)"""
+    """سحب النصوص والصور"""
     url = f"https://t.me/s/{channel_name}"
     results = []
     try:
@@ -119,11 +98,9 @@ def scrape_channel(channel_name):
         message_boxes = soup.find_all("div", class_="tgme_widget_message")
         
         for box in message_boxes[-3:]:
-            # تجاهل الفيديوهات المباشرة
             if box.find("video"):
                 continue
 
-            # 1. البحث عن الصور العادية
             photo_url = None
             photo_wrap = box.find("a", class_="tgme_widget_message_photo_wrap")
             if photo_wrap and "style" in photo_wrap.attrs:
@@ -131,7 +108,6 @@ def scrape_channel(channel_name):
                 if match:
                     photo_url = match.group(1)
 
-            # 2. البحث عن صور المعاينات وأغلفة الأخبار إذا ما لقي صورة عادية
             if not photo_url:
                 preview_img = box.find("i", class_="link_preview_image") or box.find("i", class_="tgme_widget_message_photo")
                 if preview_img and "style" in preview_img.attrs:
@@ -139,7 +115,6 @@ def scrape_channel(channel_name):
                     if match:
                         photo_url = match.group(1)
 
-            # 3. استخراج النص
             text_elem = box.find("div", class_="tgme_widget_message_text")
             if text_elem:
                 text = text_elem.get_text(separator="\n").strip()
@@ -151,7 +126,7 @@ def scrape_channel(channel_name):
         return []
 
 def news_loop():
-    print("🚀 البوت بدأ العمل بنظام v1 للذكاء الاصطناعي وسحب جميع أنواع الصور...", flush=True)
+    print("🚀 البوت بدأ العمل بنظام الذكاء الاصطناعي المفتوح والمجاني (بدون أي مفاتيح)...", flush=True)
 
     while True:
         for channel in SOURCE_CHANNELS:
@@ -164,13 +139,9 @@ def news_loop():
                     if len(posted_messages) > 500:
                         posted_messages.clear()
 
-                    print(f"📥 خبر جديد من {channel}... جاري معالجته...", flush=True)
+                    print(f"📥 خبر جديد من {channel}... جاري إعادة الصياغة فوراً...", flush=True)
                     
-                    final_text = ask_gemini(raw_news)
-                    
-                    if not final_text or len(final_text) < 15:
-                        final_text = fallback_clean(raw_news)
-
+                    final_text = free_ai_rephrase(raw_news)
                     send_to_telegram(final_text, photo_url)
 
             time.sleep(3)
