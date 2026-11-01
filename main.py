@@ -10,6 +10,9 @@ BOT_TOKEN = "9299530952:AAHH4CC0CqT-kfFkyGR97W-W3untPRP8xLI"
 GEMINI_API_KEY = "AIzaSyBUHdNuRzGOcBIZTKapO2bSPxnC1NBJWhU"
 TARGET_CHANNEL = "@almaydan_news24"
 
+# التوقيع التلقائي اللي رح ينزل بأسفل كل خبر
+SIGNATURE = "\n\n➖➖➖➖➖➖➖\n📲 **الميدان نيوز | تابع التغطية أولاً بأول:**\n🔗 @almaydan_news24"
+
 SOURCE_CHANNELS = ["bintjbeilnews", "N_FFG", "sham_fm", "AJA_Breaking"]
 
 PROMPT = """
@@ -28,11 +31,12 @@ PROMPT = """
 posted_messages = set()
 
 def send_to_telegram(text):
-    """إرسال الخبر لقناتك"""
+    """إرسال الخبر لقناتك مع التوقيع"""
+    full_message = text + SIGNATURE
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TARGET_CHANNEL,
-        "text": text,
+        "text": full_message,
         "parse_mode": "Markdown"
     }
     try:
@@ -92,7 +96,7 @@ def scrape_channel(channel_name):
         return []
 
 def news_loop():
-    print("🚀 البوت بدأ العمل الحقيقي بالنظام المباشر...", flush=True)
+    print("🚀 البوت بدأ العمل الحقيقي مع التوقيع التلقائي...", flush=True)
 
     while True:
         for channel in SOURCE_CHANNELS:
@@ -107,21 +111,18 @@ def news_loop():
 
                     print(f"📥 خبر جديد من {channel}، جاري معالجته...", flush=True)
                     
-                    # محاولة الصياغة بالذكاء الاصطناعي
                     final_text = ask_gemini(raw_news)
                     
-                    # إذا الذكاء الاصطناعي تجاهل الخبر لأنه إعلان
                     if final_text and "IGNORE" in final_text:
                         print(f"⛔ إعلان تم استبعاده من {channel}.", flush=True)
                         continue
 
-                    # إذا ما اشتغل الذكاء الاصطناعي، بنشغّل نظام التنظيف الفوري وما منضيع الخبر
                     if not final_text or len(final_text) < 10:
-                        print("⚠️ الذكاء الاصطناعي تعطل، سيتم النشر عبر نظام التنظيف الفوري المباشر!", flush=True)
+                        print("⚠️ استخدام نظام التنظيف الفوري المباشر!", flush=True)
                         final_text = fallback_clean(raw_news)
 
                     send_to_telegram(final_text)
-                    print(f"✅ تم نشر الخبر بنجاح في قناتك من {channel}!", flush=True)
+                    print(f"✅ تم نشر الخبر مع التوقيع بنجاح من {channel}!", flush=True)
 
             time.sleep(4)
 
