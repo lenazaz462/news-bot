@@ -61,30 +61,30 @@ def send_to_telegram(text, photo_url=None):
         print(f"خطأ بالإرسال لتلغرام: {e}", flush=True)
 
 def free_ai_rephrase(raw_text):
-    """إعادة صياغة بذكاء اصطناعي مفتوح وبدون أي مفاتيح API"""
+    """إعادة صياغة سريعة بذكاء اصطناعي مفتوح مع مهلة 25 ثانية"""
     clean_input = re.sub(r'https?://\S+', '', raw_text)
     clean_input = re.sub(r'@\w+', '', clean_input).replace("تابعونا", "").replace("اشترك", "").strip()
     
     prompt = (
-        "أنت محرر صحفي محترف. أعد صياغة هذا الخبر بأسلوب صحفي جديد كلياً ورصين مع الحفاظ على كامل التفاصيل والمعلومات بدقة. "
-        "احذف أي أسماء قنوات أو إعلانات واجعل النص يبدأ بـ 🔴 <b>NEWS | عاجل</b>:\n\n" + clean_input
+        "أنت محرر صحفي محترف. أعد صياغة هذا الخبر بأسلوب صحفي جديد كلياً ومحترف مع الحفاظ على كل التفاصيل والأسماء بدقة وبدون اختصار. "
+        "احذف أي أسماء قنوات أو إعلانات، وابدأ المنشور حصراً بـ 🔴 <b>NEWS | عاجل</b>:\n\n" + clean_input
     )
     
+    # المحاولة الأولى عبر سيرفر الذكاء الاصطناعي السريع
     try:
-        # الاتصال بمحرك الذكاء الاصطناعي المفتوح والمجاني بالكامل
         url = "https://text.pollinations.ai/"
         payload = {
             "messages": [{"role": "user", "content": prompt}],
-            "model": "openai"
+            "model": "mistral"  # موديل سريع جداً واستجابته فورية بالعربي
         }
-        res = requests.post(url, json=payload, timeout=12)
+        res = requests.post(url, json=payload, timeout=25) # زيادة المهلة لـ 25 ثانية
         if res.status_code == 200 and len(res.text) > 30:
-            print("✨ نجح الذكاء الاصطناعي المفتوح في إعادة الصياغة بالكامل!", flush=True)
+            print("✨ نجح الذكاء الاصطناعي في إعادة الصياغة بالكامل وبدون أخطاء!", flush=True)
             return res.text.strip()
     except Exception as e:
-        print(f"تخطي الذكاء الاصطناعي بسبب البطء: {e}", flush=True)
+        print(f"تم استخدام الصياغة المباشرة بسبب الضغط: {e}", flush=True)
 
-    # قالب فوري في حال تأخر الإنترنت
+    # في حال التأخر الشديد، صياغة سريعة بدون إعلانات
     lines = [html.escape(line.strip()) for line in clean_input.split("\n") if line.strip()]
     return f"🔴 <b>NEWS | عاجل</b>\n\n" + "\n\n".join(lines)
 
@@ -126,7 +126,7 @@ def scrape_channel(channel_name):
         return []
 
 def news_loop():
-    print("🚀 البوت بدأ العمل بنظام الذكاء الاصطناعي المفتوح والمجاني (بدون أي مفاتيح)...", flush=True)
+    print("🚀 البوت يعمل الآن بأقصى سرعة مع الصياغة الذكية المحدثة...", flush=True)
 
     while True:
         for channel in SOURCE_CHANNELS:
@@ -139,7 +139,7 @@ def news_loop():
                     if len(posted_messages) > 500:
                         posted_messages.clear()
 
-                    print(f"📥 خبر جديد من {channel}... جاري إعادة الصياغة فوراً...", flush=True)
+                    print(f"📥 خبر جديد من {channel}... جاري الصياغة الفورية...", flush=True)
                     
                     final_text = free_ai_rephrase(raw_news)
                     send_to_telegram(final_text, photo_url)
