@@ -23,11 +23,11 @@ SOURCE_CHANNELS = [
     "iraqex1", "alnourradio", "bintjbeilnews", "N_FFG"
 ]
 
-# ================= بيانات تويتر (X) =================
-TWITTER_API_KEY = "ifOECbkOlqZrzvKZqUioWpEou"
-TWITTER_API_SECRET = "lwPoGZyNNqiq4nzEgd4K5LdEeGfCG3TjPIjQwRhNoDWLKHhjAn"
-TWITTER_ACCESS_TOKEN = "2117392638458384384-mNaXBDphr8UmEr0ru9og09Lo8SGJTU"
-TWITTER_ACCESS_TOKEN_SECRET = "2mq4F3AIApmtAsIJf3GsN4oNqLTBVF1veJWBuKZi7Dq5T"
+# ================= بيانات تويتر (X) الصحيحة 100% =================
+TWITTER_API_KEY = "KZsPCUjUpS6HMhyvpeBbaOiie"
+TWITTER_API_SECRET = "ERyxdVdTcknoXosJ8oWV9YzxOHyQLogviUmxiSiJ7upjDQA5VF"
+TWITTER_ACCESS_TOKEN = "2117392638458384384-T89QXeNoye9GqPL3Eln1Ns7tFZasSl"
+TWITTER_ACCESS_TOKEN_SECRET = "DWbbL2z5QXZbdilioIpr3rHN4MLwxSCAEDNDUIeoNSdFo"
 
 # ================= بيانات موقع الربح =================
 SHORTENER_API = "6741aa28a3eabcc90c89f1ab9f55a5ffa832408b"
@@ -81,7 +81,7 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
 }
 
-# --- دالة التغريد على تويتر بواسطة requests مباشرة وبدون tweepy ---
+# --- دالة التغريد على تويتر الموثوقة ---
 def post_tweet(tweet_text):
     url = "https://api.twitter.com/2/tweets"
     method = "POST"
@@ -124,8 +124,8 @@ def shorten_url(url):
 # --- حلقة التغريد على تويتر ---
 def twitter_loop():
     global tweet_counter
-    print("🚀 بدء تشغيل بوت تويتر بدون الحاجة لمكتبات خارجية...", flush=True)
-    time.sleep(20)
+    print("🚀 بدء تشغيل بوت التغريدات التلقائية على X...", flush=True)
+    time.sleep(15)  # انتظار قليل للبدء
     
     while True:
         try:
