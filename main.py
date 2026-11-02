@@ -4,10 +4,14 @@ import html
 import random
 import os
 import threading
+import hmac
+import hashlib
+import base64
+import urllib.parse
+import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 from bs4 import BeautifulSoup
-import tweepy
 
 # ================= بيانات تلغرام =================
 NEWS_BOT_TOKEN = "9299530952:AAHH4CC0CqT-kfFkyGR97W-W3untPRP8xLI"
@@ -28,9 +32,8 @@ TWITTER_ACCESS_TOKEN_SECRET = "2mq4F3AIApmtAsIJf3GsN4oNqLTBVF1veJWBuKZi7Dq5T"
 # ================= بيانات موقع الربح =================
 SHORTENER_API = "6741aa28a3eabcc90c89f1ab9f55a5ffa832408b"
 
-# ================= قوالب تغريدات شاملة للأقسام الأربعة =================
+# قوالب تغريدات شاملة للأقسام الأربعة
 TWEETS_POOL = [
-    # --- 1. قسم الرياضة والمباريات ---
     {
         "category": "رياضة",
         "text": "⚽️ بث مباشر لمباريات اليوم بدون تقطيع وبأعلى جودة مناسبة لجميع الأجهزة!\n\n👇 سيرفر المشاهدة السريع هنا:\n{link}\n\n#مباراة_اليوم #الهلال #النصر #الاتحاد #دوري_ابطال_اوروبا #ريال_مدريد #برشلونة #كورة_لايف"
@@ -39,8 +42,6 @@ TWEETS_POOL = [
         "category": "رياضة",
         "text": "🔥 ملخص وأهداف مباريات اليوم كاملة بجودة عالية Full HD وتغطية حصرية فورية!\n\n👇 شاهد فيديو الأهداف واللقطات الآن:\n{link}\n\n#الدوري_الانجليزي #الدوري_السعودي #ليفربول #مانشستر_سيتي #كورة"
     },
-
-    # --- 2. قسم المسلسلات والأفلام ---
     {
         "category": "مسلسلات",
         "text": "🎬 فيلم السهرة الحصري والأكثر طلباً اليوم متوفر الآن للمشاهدة والتحميل بأعلى جودة مترجم!\n\n👇 رابط المشاهدة المباشر:\n{link}\n\n#سينما #افلام #مسلسلات #نتفلكس #ايجي_بست #سهرة_الخميس #سهرة_الليلة"
@@ -49,8 +50,6 @@ TWEETS_POOL = [
         "category": "مسلسلات",
         "text": "🍿 الحلقات الجديدة من أقوى المسلسلات العربية والتركية متوفرة الآن بدون إعلانات مزعجة!\n\n👇 شاهد الحلقة كاملة الآن:\n{link}\n\n#مسلسلات_تركية #مسلسلات_عربية #شاهد #دراما #اكسبلور #ترند"
     },
-
-    # --- 3. قسم الأخبار العاجلة والتريند ---
     {
         "category": "أخبار",
         "text": "🔴 عاجل | تطورات ميدانية متسارعة وأنباء هامة نضعكم في تفاصيلها أولاً بأول!\n\n👇 شاهد التفاصيل الكاملة والفيديو الحصري:\n{link}\n\n#عاجل #أخبار #السعودية #الخليج #الميدان #ترند_اليوم #خبر_عاجل"
@@ -59,8 +58,6 @@ TWEETS_POOL = [
         "category": "أخبار",
         "text": "🚨 فيديو متداول ومثير للجدل يتصدر منصات التواصل الآن.. شاهد ما حدث بالكامل!\n\n👇 رابط مشاهدة الفيديو المباشر:\n{link}\n\n#فيديو_متداول #ترند #اكسبلور_فولو #أخبار_اليوم #حدث_الان"
     },
-
-    # --- 4. قسم العملات الرقمية والإيردروبات ---
     {
         "category": "عملات رقمية",
         "text": "💎 إيردروب حصري وتوزيع مجاني لعملات رقمية موثوقة وسحب مباشر لمحفظتك الإلكترونية بدون إيداع!\n\n👇 رابط التسجيل السريع:\n{link}\n\n#كريبتو #بيتكوين #الربح_من_الانترنت #Crypto #Airdrop #Bitcoin #Binance #عملات_رقمية"
@@ -84,17 +81,35 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
 }
 
-# --- اتصال تويتر الرسمي ---
-try:
-    twitter_client = tweepy.Client(
-        consumer_key=TWITTER_API_KEY,
-        consumer_secret=TWITTER_API_SECRET,
-        access_token=TWITTER_ACCESS_TOKEN,
-        access_token_secret=TWITTER_ACCESS_TOKEN_SECRET
-    )
-    print("✅ تم الاتصال بحساب تويتر بنجاح!", flush=True)
-except Exception as e:
-    print(f"❌ خطأ بالاتصال بتويتر: {e}", flush=True)
+# --- دالة التغريد على تويتر بواسطة requests مباشرة وبدون tweepy ---
+def post_tweet(tweet_text):
+    url = "https://api.twitter.com/2/tweets"
+    method = "POST"
+    
+    oauth_params = {
+        "oauth_consumer_key": TWITTER_API_KEY,
+        "oauth_nonce": uuid.uuid4().hex,
+        "oauth_signature_method": "HMAC-SHA1",
+        "oauth_timestamp": str(int(time.time())),
+        "oauth_token": TWITTER_ACCESS_TOKEN,
+        "oauth_version": "1.0"
+    }
+    
+    sorted_params = sorted(oauth_params.items())
+    param_string = "&".join([f"{urllib.parse.quote(k, safe='')}={urllib.parse.quote(v, safe='')}" for k, v in sorted_params])
+    base_string = f"{method}&{urllib.parse.quote(url, safe='')}&{urllib.parse.quote(param_string, safe='')}"
+    signing_key = f"{urllib.parse.quote(TWITTER_API_SECRET, safe='')}&{urllib.parse.quote(TWITTER_ACCESS_TOKEN_SECRET, safe='')}"
+    
+    signature = base64.b64encode(hmac.new(signing_key.encode(), base_string.encode(), hashlib.sha1).digest()).decode()
+    oauth_params["oauth_signature"] = signature
+    
+    auth_header = "OAuth " + ", ".join([f'{urllib.parse.quote(k, safe="")}="{urllib.parse.quote(v, safe="")}"' for k, v in sorted(oauth_params.items())])
+    headers = {
+        "Authorization": auth_header,
+        "Content-Type": "application/json"
+    }
+    
+    return requests.post(url, headers=headers, json={"text": tweet_text}, timeout=15)
 
 def shorten_url(url):
     api_url = f"https://exe.io/api?api={SHORTENER_API}&url={url}"
@@ -106,11 +121,11 @@ def shorten_url(url):
         pass
     return url
 
-# --- حلقة التغريد الآمنة (كل 30 دقيقة تختار قسماً مختلفاً) ---
+# --- حلقة التغريد على تويتر ---
 def twitter_loop():
     global tweet_counter
-    print("🚀 بدء تشغيل بوت التغريدات (رياضة + مسلسلات + أخبار + كريبتو)...", flush=True)
-    time.sleep(15)
+    print("🚀 بدء تشغيل بوت تويتر بدون الحاجة لمكتبات خارجية...", flush=True)
+    time.sleep(20)
     
     while True:
         try:
@@ -120,9 +135,13 @@ def twitter_loop():
             
             tweet_text = chosen["text"].replace("{link}", short_link)
             
-            response = twitter_client.create_tweet(text=tweet_text)
-            tweet_counter += 1
-            print(f"🐦 [تغريدة {chosen['category']} رقم {tweet_counter}]: تم النشر بنجاح! ID: {response.data['id']}", flush=True)
+            res = post_tweet(tweet_text)
+            if res.status_code in [200, 201]:
+                tweet_counter += 1
+                tweet_id = res.json().get('data', {}).get('id', 'OK')
+                print(f"🐦 [تغريدة {chosen['category']} رقم {tweet_counter}]: تم النشر بنجاح على X! ID: {tweet_id}", flush=True)
+            else:
+                print(f"⚠️ خطأ من تويتر: {res.status_code} - {res.text}", flush=True)
         except Exception as e:
             print(f"⚠️ خطأ أثناء التغريد: {e}", flush=True)
             
